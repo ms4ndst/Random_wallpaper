@@ -1,4 +1,8 @@
 # Random Wallpaper Scripts
+############DISCLAIMER#################################
+# This script is written using the Warp terminal agent
+# No code is created by be
+#######################################################
 
 This folder contains two PowerShell scripts for setting a random desktop wallpaper on Windows and configuring it to run automatically at logon.
 
