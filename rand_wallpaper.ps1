@@ -21,7 +21,7 @@
   Wallpaper style: Fill, Fit, Stretch, Center, Tile, Span. Default Fill.
 
 .PARAMETER Recurse
-  Include images from subfolders. Default: false.
+  Include images from subfolders. Default: true.
 
 .PARAMETER Once
   If specified, set a random wallpaper once and exit (no loop).
@@ -39,12 +39,12 @@
 #>
 param(
   [Parameter(Position = 0)]
-  [string]$ImageFolder,
+  [string]$ImageFolder = (Join-Path $env:USERPROFILE 'wallpapers'),
 
   [int]$IntervalMinutes = 30,
 
   [ValidateSet('Fill','Fit','Stretch','Center','Tile','Span')]
-  [string]$Style = 'Fill',
+  [string]$Style = 'Stretch',
 
   [switch]$Recurse,
 
@@ -54,9 +54,7 @@ param(
 
   [switch]$UninstallBackground,
 
-  [string]$TaskName = 'RandomWallpaper',
-
-  [switch]$LockScreen
+  [string]$TaskName = 'RandomWallpaper'
 )
 
 Set-StrictMode -Version Latest
@@ -135,134 +133,10 @@ function Test-IsAdmin {
   } catch { return $false }
 }
 
-function Get-LockScreenTargetPath {
-  # Prefer system path for lock screen assets; fallback to ProgramData if not writable
-  $folder = 'C:\Windows\Web\Screen'
-  try {
-    if (-not (Test-Path -LiteralPath $folder)) {
-      New-Item -Path $folder -ItemType Directory -Force | Out-Null
-    }
-  } catch {
-    $folder = 'C:\ProgramData\RandomWallpaper'
-    if (-not (Test-Path -LiteralPath $folder)) {
-      New-Item -Path $folder -ItemType Directory -Force | Out-Null
-    }
-  }
-  return (Join-Path $folder 'RandomWallpaper.jpg')
-}
 
-function Convert-ToJpeg {
-  param(
-    [Parameter(Mandatory)][string]$SourcePath,
-    [Parameter(Mandatory)][string]$DestPath,
-    [int]$Quality = 85
-  )
-  Add-Type -AssemblyName System.Drawing
-  $img = $null
-  try {
-    $img = [System.Drawing.Image]::FromFile($SourcePath)
-    $jpgCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
-    $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)
-    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]$Quality)
-    if (Test-Path -LiteralPath $DestPath) { Remove-Item -LiteralPath $DestPath -Force -ErrorAction SilentlyContinue }
-    $img.Save($DestPath, $jpgCodec, $encParams)
-  } finally {
-    if ($img) { $img.Dispose() }
-  }
-}
 
-function Ensure-FileReadableByUsers {
-  param([Parameter(Mandatory)][string]$Path)
-  try {
-    $acl = Get-Acl -LiteralPath $Path
-    # Use SIDs to avoid localization issues
-    $sidUsers = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-545')            # BUILTIN\Users
-    $sidSystem = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')               # LOCAL SYSTEM
-    $sidAllApps = New-Object System.Security.Principal.SecurityIdentifier('S-1-15-2-1')            # ALL APPLICATION PACKAGES
-    $rights = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [System.Security.AccessControl.FileSystemRights]::Read
-    $inherit = [System.Security.AccessControl.InheritanceFlags]::None
-    $prop = [System.Security.AccessControl.PropagationFlags]::None
-    $allow = [System.Security.AccessControl.AccessControlType]::Allow
-    $rules = @(
-      New-Object System.Security.AccessControl.FileSystemAccessRule($sidUsers, $rights, $inherit, $prop, $allow),
-      New-Object System.Security.AccessControl.FileSystemAccessRule($sidSystem, $rights, $inherit, $prop, $allow),
-      New-Object System.Security.AccessControl.FileSystemAccessRule($sidAllApps, $rights, $inherit, $prop, $allow)
-    )
-    foreach ($rule in $rules) { $acl.AddAccessRule($rule) }
-    Set-Acl -LiteralPath $Path -AclObject $acl
-  } catch { }
-}
 
-function Ensure-FolderReadableByUsers {
-  param([Parameter(Mandatory)][string]$FolderPath)
-  try {
-    $acl = Get-Acl -LiteralPath $FolderPath
-    $sidUsers = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-545')
-    $sidSystem = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
-    $sidAllApps = New-Object System.Security.Principal.SecurityIdentifier('S-1-15-2-1')
-    $rights = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute -bor [System.Security.AccessControl.FileSystemRights]::ListDirectory
-    $inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
-    $prop = [System.Security.AccessControl.PropagationFlags]::None
-    $allow = [System.Security.AccessControl.AccessControlType]::Allow
-    $rules = @(
-      New-Object System.Security.AccessControl.FileSystemAccessRule($sidUsers, $rights, $inherit, $prop, $allow),
-      New-Object System.Security.AccessControl.FileSystemAccessRule($sidSystem, $rights, $inherit, $prop, $allow),
-      New-Object System.Security.AccessControl.FileSystemAccessRule($sidAllApps, $rights, $inherit, $prop, $allow)
-    )
-    foreach ($rule in $rules) { $acl.AddAccessRule($rule) }
-    Set-Acl -LiteralPath $FolderPath -AclObject $acl
-  } catch { }
-}
 
-function Set-LockScreenImage {
-  param([Parameter(Mandatory)][string]$ImagePath)
-  $targetPath = Get-LockScreenTargetPath
-  $targetFolder = Split-Path -Path $targetPath -Parent
-
-  # Ensure folder readable by system components
-  Ensure-FolderReadableByUsers -FolderPath $targetFolder
-
-  # Always re-encode to real JPEG to satisfy policy expectations
-  try {
-    Convert-ToJpeg -SourcePath $ImagePath -DestPath $targetPath -Quality 85
-    Ensure-FileReadableByUsers -Path $targetPath
-  } catch {
-    throw "Failed to prepare JPEG for lock screen at ${targetPath}: $($_.Exception.Message)"
-  }
-
-  if (Test-IsAdmin) {
-    try {
-      # Set classic policy key for compatibility
-      New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization' -Force | Out-Null
-      Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization' -Name 'LockScreenImage' -Type String -Value $targetPath
-
-      # Set PersonalizationCSP keys (device-wide) per request
-      New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Force | Out-Null
-      Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Name 'LockScreenImagePath' -Type String -Value $targetPath
-      Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Name 'LockScreenImageUrl'  -Type String -Value $targetPath
-      Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Name 'LockScreenImageStatus' -Type DWord  -Value 1
-
-      # Apply policy (best-effort)
-      try { gpupdate /target:computer /force | Out-Null } catch {}
-      Write-Host "Lock screen image policy and CSP set to $targetPath"
-    } catch {
-      Write-Warning "Failed to set policy/CSP lock screen image: $($_.Exception.Message)"
-    }
-  } else {
-    # Best-effort user-level approach (may not work on all editions)
-    try {
-      Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' -Name 'RotatingLockScreenEnabled' -Type DWord -Value 0 -ErrorAction SilentlyContinue
-      Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' -Name 'RotatingLockScreenOverlayEnabled' -Type DWord -Value 0 -ErrorAction SilentlyContinue
-      New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Force -ErrorAction SilentlyContinue | Out-Null
-      Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Name 'LockScreenImagePath' -Type String -Value $targetPath -ErrorAction SilentlyContinue
-      Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Name 'LockScreenImageUrl' -Type String -Value $targetPath -ErrorAction SilentlyContinue
-      Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PersonalizationCSP' -Name 'LockScreenImageStatus' -Type DWord -Value 1 -ErrorAction SilentlyContinue
-      Write-Host "Attempted to set user lock screen image to $targetPath (may require MDM/admin)."
-    } catch {
-      Write-Warning "Failed to apply user-level lock screen settings: $($_.Exception.Message)"
-    }
-  }
-}
 
 function Set-RandomWallpaperOnce {
   param([string]$Folder, [switch]$IncludeSubfolders, [string]$Style)
@@ -270,9 +144,6 @@ function Set-RandomWallpaperOnce {
   Write-Host "Setting wallpaper: $image (Style: $Style)"
   Set-WallpaperStyleRegistry -Style $Style
   Apply-Wallpaper -ImagePath $image
-  if ($LockScreen) {
-    try { Set-LockScreenImage -ImagePath $image } catch { Write-Warning $_ }
-  }
 }
 
 function Install-BackgroundTask {
@@ -282,7 +153,6 @@ function Install-BackgroundTask {
     [int]$IntervalMinutes = 30,
     [string]$Style = 'Fill',
     [switch]$Recurse,
-    [switch]$LockScreen,
     [string]$TaskName = 'RandomWallpaper'
   )
   Write-Host "Installing Scheduled Task '$TaskName' to run in background..."
@@ -293,15 +163,13 @@ function Install-BackgroundTask {
   if ($IntervalMinutes)   { $argList += @('-IntervalMinutes',("{0}" -f $IntervalMinutes)) }
   if ($Style)             { $argList += @('-Style',("{0}" -f $Style)) }
   if ($Recurse)           { $argList += '-Recurse' }
-  if ($LockScreen)        { $argList += '-LockScreen' }
 
   $action   = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument ($argList -join ' ')
   $trigger1 = New-ScheduledTaskTrigger -AtLogOn
 
   # Optional repeating trigger as a watchdog to restart if stopped; main script loops internally
   $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-  $runLevel = if ($LockScreen) { 'Highest' } else { 'Limited' }
-  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel $runLevel
+  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
   $task = New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger1 -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable)
 
   try {
@@ -338,13 +206,15 @@ if ($UninstallBackground) {
 }
 if ($InstallBackground) {
   $resolvedFolderForTask = Resolve-DefaultImageFolder -InputFolder $ImageFolder
-  Install-BackgroundTask -ScriptPath $scriptPath -ResolvedImageFolder $resolvedFolderForTask -IntervalMinutes $IntervalMinutes -Style $Style -Recurse:$Recurse -LockScreen:$LockScreen -TaskName $TaskName
+  Install-BackgroundTask -ScriptPath $scriptPath -ResolvedImageFolder $resolvedFolderForTask -IntervalMinutes $IntervalMinutes -Style $Style -Recurse:$Recurse -TaskName $TaskName
   return
 }
 
 # Resolve folder and do an immediate change on start (per requirement)
 $resolvedFolder = Resolve-DefaultImageFolder -InputFolder $ImageFolder
-Set-RandomWallpaperOnce -Folder $resolvedFolder -IncludeSubfolders:$Recurse -Style $Style
+# Default recursion to true unless explicitly provided
+$useRecurse = if ($PSBoundParameters.ContainsKey('Recurse')) { [bool]$Recurse } else { $true }
+Set-RandomWallpaperOnce -Folder $resolvedFolder -IncludeSubfolders:$useRecurse -Style $Style
 
 if ($Once) {
   return
@@ -355,7 +225,7 @@ if ($IntervalMinutes -lt 1) { $IntervalMinutes = 1 }
 while ($true) {
   try {
     Start-Sleep -Seconds ($IntervalMinutes * 60)
-    Set-RandomWallpaperOnce -Folder $resolvedFolder -IncludeSubfolders:$Recurse -Style $Style
+    Set-RandomWallpaperOnce -Folder $resolvedFolder -IncludeSubfolders:$useRecurse -Style $Style
   } catch {
     Write-Warning ("Failed to set wallpaper: " + $_.Exception.Message)
   }

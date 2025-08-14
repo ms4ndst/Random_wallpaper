@@ -5,8 +5,8 @@
 .DESCRIPTION
   - Tries to create a .lnk shortcut in the user's Startup folder using WScript.Shell
   - Falls back to creating a .cmd launcher if COM is unavailable
-  - Points to pwsh.exe if available, otherwise powershell.exe
-  - Passes through Interval/Style/Recurse/LockScreen options to the wallpaper script
+  - Prefers Windows PowerShell (powershell.exe) for better hidden window support, falls back to pwsh.exe if needed
+  - Passes through Interval/Style/Recurse options to the wallpaper script (relies on script's default ImageFolder)
 
 .PARAMETER ScriptPath
   Path to rand_wallpaper.ps1. Defaults to rand_wallpaper.ps1 in the same directory as this script.
@@ -20,15 +20,12 @@
 .PARAMETER Recurse
   Include subfolders when picking images.
 
-.PARAMETER LockScreen
-  Also set lock screen image (best-effort unless running as admin).
-
 .PARAMETER TaskName
   Used to name files created; default "RandomWallpaper"
 
 .EXAMPLE
   # Create Startup entry using defaults
-  ./Create-RandomWallpaperStartup.ps1 -IntervalMinutes 15 -Style Fill -Recurse -LockScreen
+  ./Create-RandomWallpaperStartup.ps1 -IntervalMinutes 15 -Style Fill -Recurse
 #>
 param(
   [string]$ScriptPath = (Join-Path $PSScriptRoot 'rand_wallpaper.ps1'),
@@ -36,7 +33,6 @@ param(
   [ValidateSet('Fill','Fit','Stretch','Center','Tile','Span')]
   [string]$Style = 'Fill',
   [switch]$Recurse,
-  [switch]$LockScreen = $True,
   [string]$TaskName = 'RandomWallpaper'
 )
 
@@ -88,12 +84,14 @@ function New-StartupShortcut {
 function New-StartupCmdLauncher {
   param(
     [Parameter(Mandatory)][string]$CmdPath,
+    [Parameter(Mandatory)][string]$PsExe,
     [Parameter(Mandatory)][string]$ScriptPath,
     [Parameter(Mandatory)][string]$Args
   )
+  # Build a small .cmd that starts the chosen PowerShell host minimized with the given args
   $lines = @(
     '@echo off',
-    ('start "" powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" {1}' -f $ScriptPath, $Args)
+    ('start "" /min "{0}" {1}' -f $PsExe, $Args)
   )
   Set-Content -LiteralPath $CmdPath -Value $lines -Encoding ASCII
   if (-not (Test-Path -LiteralPath $CmdPath)) {
@@ -108,8 +106,7 @@ $psExe = Get-PreferredPsExeForBackground
 
 # Build arguments to pass to PowerShell (prefer powershell.exe) and hide/minimize window
 $argList = @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File', ('"{0}"' -f $scriptFull), '-IntervalMinutes', ('{0}' -f $IntervalMinutes), '-Style', $Style)
-if ($Recurse) { $argList += '-Recurse' }
-if ($LockScreen) { $argList += '-LockScreen' }
+if ($Recurse)          { $argList += '-Recurse' }
 $joinedArgs = ($argList -join ' ')
 
 # Try .lnk first
@@ -121,13 +118,8 @@ if ($created) {
   return
 }
 
-# Fallback: create .cmd launcher
+# Fallback: create .cmd launcher using the same PowerShell host and arguments
 $cmdPath = Join-Path $startupFolder ($TaskName + '.cmd')
-# For .cmd we use powershell.exe hidden/minimized for compatibility
-$psArgs = ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -IntervalMinutes {1} -Style {2}{3}{4}' -f $scriptFull, $IntervalMinutes, $Style, ($Recurse ? ' -Recurse' : ''), ($LockScreen ? ' -LockScreen' : ''))
-$lines = @(
-  '@echo off',
-  ('start "" /min powershell {0}' -f $psArgs)
-)
-Set-Content -LiteralPath $cmdPath -Value $lines -Encoding ASCII
+$psArgs = $joinedArgs
+New-StartupCmdLauncher -CmdPath $cmdPath -PsExe $psExe -ScriptPath $scriptFull -Args $psArgs
 Write-Host "Created Startup launcher: $cmdPath"
