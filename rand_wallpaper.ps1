@@ -39,7 +39,7 @@
 #>
 param(
   [Parameter(Position = 0)]
-  [string]$ImageFolder = (Join-Path $env:USERPROFILE 'wallpapers'),
+  [string]$ImageFolder = (Join-Path (Join-Path $env:USERPROFILE 'Pictures') 'Wallpapers'),
 
   [int]$IntervalMinutes = 30,
 
@@ -64,15 +64,29 @@ function Resolve-DefaultImageFolder {
   param([string]$InputFolder)
   if ($InputFolder -and (Test-Path -LiteralPath $InputFolder)) { return (Resolve-Path -LiteralPath $InputFolder).Path }
 
-  # Preferred default: %USERPROFILE%\wallpapers
-  $userWall = Join-Path $env:USERPROFILE 'wallpapers'
-  if (Test-Path -LiteralPath $userWall) { return (Resolve-Path -LiteralPath $userWall).Path }
+  # Resolve the user's Pictures folder via Known Folders (handles OneDrive redirection)
+  try {
+    $knownPictures = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyPictures)
+  } catch {
+    $knownPictures = $null
+  }
 
-  # Fallbacks: Pictures\Wallpapers, then Pictures
+  # Preferred default: <Pictures>\Wallpapers (using Known Folder if available)
+  if ($knownPictures) {
+    $knownWall = Join-Path $knownPictures 'Wallpapers'
+    if (Test-Path -LiteralPath $knownWall) { return (Resolve-Path -LiteralPath $knownWall).Path }
+  }
+
+  # Next, try %USERPROFILE%\Pictures\Wallpapers explicitly
   $pictures = Join-Path $env:USERPROFILE 'Pictures'
   $defaultWall = Join-Path $pictures 'Wallpapers'
   if (Test-Path -LiteralPath $defaultWall) { return (Resolve-Path -LiteralPath $defaultWall).Path }
+
+  # Fallbacks: the Pictures folder itself (Known Folder first), then %USERPROFILE%\Pictures, then %USERPROFILE%\wallpapers
+  if ($knownPictures -and (Test-Path -LiteralPath $knownPictures)) { return (Resolve-Path -LiteralPath $knownPictures).Path }
   if (Test-Path -LiteralPath $pictures) { return (Resolve-Path -LiteralPath $pictures).Path }
+  $userWall = Join-Path $env:USERPROFILE 'wallpapers'
+  if (Test-Path -LiteralPath $userWall) { return (Resolve-Path -LiteralPath $userWall).Path }
 
   throw "No valid image folder found. Provide -ImageFolder with a valid path."
 }

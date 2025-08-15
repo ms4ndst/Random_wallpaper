@@ -24,9 +24,9 @@ Features:
 - Optional: install/uninstall a background Scheduled Task (may be blocked by policy)
 
 Default image folder resolution order:
-1) %USERPROFILE%\wallpapers (default)
-2) %USERPROFILE%\Pictures\Wallpapers
-3) %USERPROFILE%\Pictures
+1) %USERPROFILE%\\Pictures\\Wallpapers (default)
+2) %USERPROFILE%\\Pictures
+3) %USERPROFILE%\\wallpapers
 
 Usage examples:
 - Set once and exit using defaults
@@ -39,7 +39,7 @@ Usage examples:
   pwsh -NoProfile -File .\rand_wallpaper.ps1 -ImageFolder "C:\Wallpapers" -IntervalMinutes 20 -Style Fit
 
 Parameters:
-- -ImageFolder cpathe  Folder to pick images from (defaults to %USERPROFILE%\wallpapers; see resolution order above)
+- -ImageFolder \u0003cpath\u0003e  Folder to pick images from (defaults to %USERPROFILE%\\Pictures\\Wallpapers; see resolution order above)
 - -IntervalMinutes <int>  Minutes between changes when running continuously (default 30)
 - -Style <Fill|Fit|Stretch|Center|Tile|Span>  Wallpaper style (default Fill)
 - -Recurse  Include images from subfolders (default behavior)
@@ -58,7 +58,7 @@ Creates a Startup entry so rand_wallpaper.ps1 starts automatically at user logon
 
 PowerShell host selection:
 - Prefers Windows PowerShell (powershell.exe) for better hidden/minimized window behavior; falls back to pwsh.exe if not available.
-- The startup script relies on rand_wallpaper.ps1's default ImageFolder (%USERPROFILE%\wallpapers). If you want a different folder, run rand_wallpaper.ps1 manually with -ImageFolder to test, or modify the default path in the script.
+- The startup script relies on rand_wallpaper.ps1's default ImageFolder (%USERPROFILE%\\Pictures\\Wallpapers). If you want a different folder, run rand_wallpaper.ps1 manually with -ImageFolder to test, or modify the default path in the script.
 
 Typical usage:
 - Create a Startup entry to run every 15 minutes, Fill, include subfolders:

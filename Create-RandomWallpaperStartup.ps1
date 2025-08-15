@@ -46,6 +46,12 @@ function Get-PreferredPsExeForBackground {
   throw 'Neither pwsh.exe nor powershell.exe was found in PATH.'
 }
 
+function Test-WindowStyleSupported {
+  param([Parameter(Mandatory)][string]$PsExe)
+  # Only Windows PowerShell supports -WindowStyle parameter
+  return ([System.IO.Path]::GetFileName($PsExe)).Equals('powershell.exe', 'InvariantCultureIgnoreCase')
+}
+
 function Get-StartupFolder {
   $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
   if (-not (Test-Path -LiteralPath $startup)) {
@@ -104,8 +110,10 @@ $scriptFull = (Resolve-Path -LiteralPath $ScriptPath).Path
 $startupFolder = Get-StartupFolder
 $psExe = Get-PreferredPsExeForBackground
 
-# Build arguments to pass to PowerShell (prefer powershell.exe) and hide/minimize window
-$argList = @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File', ('"{0}"' -f $scriptFull), '-IntervalMinutes', ('{0}' -f $IntervalMinutes), '-Style', $Style)
+# Build arguments to pass to PowerShell host; only include -WindowStyle Hidden if supported
+$argList = @('-NoProfile')
+if (Test-WindowStyleSupported -PsExe $psExe) { $argList += @('-WindowStyle','Hidden') }
+$argList += @('-ExecutionPolicy','Bypass','-File', ('"{0}"' -f $scriptFull), '-IntervalMinutes', ('{0}' -f $IntervalMinutes), '-Style', $Style)
 if ($Recurse)          { $argList += '-Recurse' }
 $joinedArgs = ($argList -join ' ')
 
