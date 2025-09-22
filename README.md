@@ -1,88 +1,148 @@
-# Random Wallpaper Scripts
-# DISCLAIMER
-This script is written using the Warp terminal agent
-No code is created by be
+# Random Wallpaper (Windows)
 
-# Info
-This folder contains two PowerShell scripts for setting a random desktop wallpaper on Windows and configuring it to run automatically at logon.
+A PowerShell script that sets a random desktop wallpaper from a folder. It supports a Windows system tray icon with a right‑click menu to manually change the wallpaper, configure the schedule (minutes), choose the image folder, toggle subfolder inclusion, pick style, and enable/disable scheduling. Settings persist under your profile.
 
-- rand_wallpaper.ps1 — Sets a random wallpaper immediately and optionally continues changing it on an interval.
-- Create-RandomWallpaperStartup.ps1 — Creates a Startup entry so rand_wallpaper.ps1 launches automatically at user logon with your chosen options.
+## Features
+- System tray app (Windows Forms)
+  - Change now
+  - Set folder… (browse)
+  - Set interval (minutes)…
+  - Include subfolders (toggle)
+  - Style: Fill, Fit, Stretch, Center, Tile, Span
+  - Scheduling enabled (toggle)
+  - Start at logon (toggle via Startup shortcut)
+  - Open images folder
+  - Exit
+- Custom tray icon
+  - Uses `tray.ico` (or `icon.ico`) if present next to the script
+  - If none is present, the script auto-generates a multi-resolution `tray.ico` (16, 24, 32, 48, 64, 128, 256) with an image‑themed design (mountain + sun)
+  - The tray and Startup shortcut will use the appropriate size for your DPI
+- One‑off or continuous (non‑tray) modes
+- Optional Scheduled Task to run continuously at user logon
+- Supported images: `jpg`, `jpeg`, `png`, `bmp`
 
 ## Requirements
 - Windows 10/11
-- PowerShell (pwsh or Windows PowerShell)
-- Images located in a folder you control (jpg, jpeg, png, bmp)
+- PowerShell 7+ (tested with 7.5.3), executable `pwsh`
+- .NET Windows Desktop assemblies (System.Windows.Forms/System.Drawing) – present by default on Windows desktops
 
-## rand_wallpaper.ps1
+## Files
+- `rand_wallpaper.ps1` – the main script
+- `tray.ico` – auto-generated on first run if missing; place your own to override (or use `icon.ico`)
+- Config: `%AppData%\RandomWallpaper\config.json` (created/updated by tray mode)
 
-Features:
-- Immediately sets a random wallpaper when run
-- Optional continuous mode with a configurable interval
-- Supports styles: Fill, Fit, Stretch, Center, Tile, Span
-- Recurses into subfolders by default
-- Optional: install/uninstall a background Scheduled Task (may be blocked by policy)
+## Quick start
+Run the tray app (recommended):
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -Tray
+```
+Then right‑click the tray icon to configure your folder, schedule, recurse, and style. Double‑click the tray icon or select “Change now” to immediately set a random wallpaper.
 
-Default image folder resolution order:
-1) %USERPROFILE%\\Pictures\\Wallpapers (default)
-2) %USERPROFILE%\\Pictures
-3) %USERPROFILE%\\wallpapers
+## Autostart at sign‑in (Startup shortcut)
+Install a Startup shortcut that launches the tray app at logon:
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -InstallStartup
+```
+Remove it:
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -UninstallStartup
+```
+You can also toggle “Start at logon” directly from the tray menu.
 
-Usage examples:
-- Set once and exit using defaults
-  pwsh -NoProfile -File .\rand_wallpaper.ps1 -Once
+Notes:
+- The shortcut is created in your user Startup folder with target `pwsh.exe` and arguments `-NoProfile -ExecutionPolicy Bypass -File "<script>" -Tray`.
+- The shortcut icon uses `tray.ico` or `icon.ico` if available; otherwise a system icon.
 
-- Run continuously every 15 minutes, include subfolders, style Fill
-  pwsh -NoProfile -File .\rand_wallpaper.ps1 -IntervalMinutes 15 -Style Fill -Recurse
+## Scheduled Task (optional, non‑tray)
+Create a Scheduled Task to start the script at logon and run continuously (the script itself loops on your selected interval):
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -InstallBackground -ImageFolder "C:\Wallpapers" -IntervalMinutes 30 -Style Fill -Recurse -TaskName RandomWallpaper
+```
+Remove the task:
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -UninstallBackground -TaskName RandomWallpaper
+```
+Notes:
+- Uninstall may prompt for elevation.
+- The task is registered for the current user (Interactive, Limited).
 
-- Use a custom folder
-  pwsh -NoProfile -File .\rand_wallpaper.ps1 -ImageFolder "C:\Wallpapers" -IntervalMinutes 20 -Style Fit
+## One‑off change
+Set one random wallpaper and exit:
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -Once
+```
 
-Parameters:
-- -ImageFolder \u0003cpath\u0003e  Folder to pick images from (defaults to %USERPROFILE%\\Pictures\\Wallpapers; see resolution order above)
-- -IntervalMinutes <int>  Minutes between changes when running continuously (default 30)
-- -Style <Fill|Fit|Stretch|Center|Tile|Span>  Wallpaper style (default Fill)
-- -Recurse  Include images from subfolders (default behavior)
-- -Once  Set a wallpaper once and exit (no loop)
-- -InstallBackground  Install a per-user background job (Scheduled Task) that runs at logon
-- -UninstallBackground  Remove the background task
-- -TaskName <name>  Name for the Scheduled Task (default RandomWallpaper)
+## Continuous (non‑tray) session
+Run in the foreground continuously, changing every N minutes:
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -ImageFolder "C:\Wallpapers" -IntervalMinutes 30 -Style Fill -Recurse
+```
+Press Ctrl+C to stop.
 
-Notes on background Scheduled Task:
-- The script tries to create a per-user task that launches at logon and loops internally.
-- On some managed systems, registering tasks may be blocked; in that case, use the Startup shortcut approach below.
+## Parameters (CLI)
+- `-ImageFolder <path>`
+  - Folder containing images. Default prefers `%USERPROFILE%\Pictures\Wallpapers` (or Known Folders variant), otherwise falls back to `%USERPROFILE%\Pictures` and `%USERPROFILE%\wallpapers`.
+- `-IntervalMinutes <int>`
+  - Minutes between changes. Default: `240`. Minimum enforced: `1`.
+- `-Style <Fill|Fit|Stretch|Center|Tile|Span>`
+  - Wallpaper style. Default: `Stretch`.
+- `-Recurse` (switch)
+  - Include images from subfolders. Default: `true` unless explicitly set otherwise.
+- `-Once` (switch)
+  - Set a random wallpaper once and exit.
+- `-Tray` (switch)
+  - Start the tray app (Windows Forms message loop). The tray has its own scheduler/timer and persists settings.
+- `-InstallStartup` / `-UninstallStartup` (switch)
+  - Install/remove a Startup shortcut that launches tray mode at sign‑in.
+- `-InstallBackground` / `-UninstallBackground` (switch)
+  - Install/remove a Scheduled Task that starts the script at logon and runs continuously.
+- `-TaskName <string>`
+  - Name for the Scheduled Task. Default: `RandomWallpaper`.
 
-## Create-RandomWallpaperStartup.ps1
+## Tray mode details
+- Persisted settings: `%AppData%\RandomWallpaper\config.json`
+  - `ImageFolder`: string
+  - `IntervalMinutes`: number (minutes)
+  - `Style`: one of `Fill|Fit|Stretch|Center|Tile|Span`
+  - `Recurse`: boolean
+  - `ScheduleEnabled`: boolean (enables the tray timer)
+- Timer/scheduler is internal to the tray app and can be toggled via the menu (“Scheduling enabled”).
+- Double‑click the tray icon = “Change now”.
+- Icon:
+  - Provide `tray.ico` (or `icon.ico`) next to the script for a custom icon. A 16×16 (and/or multi‑resolution) ICO is recommended.
+  - If not present, a small image‑style icon is drawn programmatically.
+- If you don’t see the tray icon, check the hidden icons overflow menu in the Windows taskbar.
 
-Creates a Startup entry so rand_wallpaper.ps1 starts automatically at user logon with your chosen options. It tries to create a .lnk shortcut; if that fails, it creates a .cmd launcher as a fallback.
+## Styles mapping
+The script sets registry values equivalent to Windows styles:
+- Fill → WallpaperStyle=10, TileWallpaper=0
+- Fit → WallpaperStyle=6, TileWallpaper=0
+- Stretch → WallpaperStyle=2, TileWallpaper=0
+- Center → WallpaperStyle=0, TileWallpaper=0
+- Tile → WallpaperStyle=0, TileWallpaper=1
+- Span → WallpaperStyle=22, TileWallpaper=0 (multi‑monitor spanning)
 
-PowerShell host selection:
-- Prefers Windows PowerShell (powershell.exe) for better hidden/minimized window behavior; falls back to pwsh.exe if not available.
-- The startup script relies on rand_wallpaper.ps1's default ImageFolder (%USERPROFILE%\\Pictures\\Wallpapers). If you want a different folder, run rand_wallpaper.ps1 manually with -ImageFolder to test, or modify the default path in the script.
-
-Typical usage:
-- Create a Startup entry to run every 15 minutes, Fill, include subfolders:
-  pwsh -NoProfile -File .\Create-RandomWallpaperStartup.ps1 -IntervalMinutes 15 -Style Fill -Recurse
-
-Parameters:
-- -ScriptPath \u003cpath\u003e  Path to rand_wallpaper.ps1 (defaults to sibling file in the same folder)
-- -IntervalMinutes \u003cint\u003e  Interval in minutes between changes (default 15)
-- -Style \u003cFill|Fit|Stretch|Center|Tile|Span\u003e  Wallpaper style (default Fill)
-- -Recurse  Include subfolders
-- -TaskName \u003cname\u003e  Base name for Startup items (default RandomWallpaper)
-
-What it creates:
-- Preferred: .lnk shortcut at %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\RandomWallpaper.lnk
-- Fallback: .cmd launcher at the same location if .lnk creation is unavailable. The .cmd uses the same PowerShell host and arguments as the shortcut.
-
-To remove autostart:
-- Delete RandomWallpaper.lnk and/or RandomWallpaper.cmd from
-  %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-
-## Tips
-- Ensure your images exist in %USERPROFILE%\wallpapers (or supply -ImageFolder). Supported: jpg, jpeg, png, bmp.
-- For multi-monitor spanning, use -Style Span.
+## Supported image formats
+- `jpg`, `jpeg`, `png`, `bmp`
 
 ## Troubleshooting
-- "No valid image folder found": Create %USERPROFILE%\wallpapers or pass -ImageFolder to an existing folder with images.
-- "Access is denied" when installing background task: Use Create-RandomWallpaperStartup.ps1 instead; some environments restrict Scheduled Task creation.
+- “No images found”: Check the selected folder and whether “Include subfolders” is set appropriately.
+- Execution policy blocks script: use the examples here which pass `-ExecutionPolicy Bypass` per‑invocation, or `Unblock-File .\\rand_wallpaper.ps1` as needed.
+- Tray icon not visible: It may be hidden in the taskbar overflow. Drag it into the visible area if desired.
+- Multi‑monitor behavior: Use `Span` style to span a single image across displays; other styles apply per‑monitor.
+- OneDrive Pictures redirection: The script resolves the Windows Known Folder for Pictures to find your default `Wallpapers` folder if present.
+- Error “SystemParametersInfo failed…”: Ensure the image path is accessible and the file type is supported.
+
+## Uninstall / Cleanup
+- Remove Startup shortcut:
+  ```powershell
+  pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -UninstallStartup
+  ```
+- Remove Scheduled Task:
+  ```powershell
+  pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -UninstallBackground -TaskName RandomWallpaper
+  ```
+- Remove tray settings: delete `%AppData%\RandomWallpaper\config.json` (optional). Close the tray app via its “Exit” menu.
+
+## License
+Not specified.
