@@ -40,16 +40,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Get-PreferredPsExeForBackground {
-  # Prefer Windows PowerShell (powershell.exe) for reliable -WindowStyle Hidden support
-  try { return (Get-Command powershell -ErrorAction Stop).Source } catch {}
+  # Require PowerShell 7+ (pwsh)
   try { return (Get-Command pwsh -ErrorAction Stop).Source } catch {}
-  throw 'Neither pwsh.exe nor powershell.exe was found in PATH.'
+  throw 'pwsh.exe (PowerShell 7+) was not found in PATH.'
 }
 
 function Test-WindowStyleSupported {
   param([Parameter(Mandatory)][string]$PsExe)
-  # Only Windows PowerShell supports -WindowStyle parameter
-  return ([System.IO.Path]::GetFileName($PsExe)).Equals('powershell.exe', 'InvariantCultureIgnoreCase')
+  # Both pwsh and powershell.exe support -WindowStyle
+  return $true
 }
 
 function Get-StartupFolder {

@@ -1,6 +1,6 @@
 # Random Wallpaper (Windows)
 
-A PowerShell script that sets a random desktop wallpaper from a folder. It supports a Windows system tray icon with a right‑click menu to manually change the wallpaper, configure the schedule (minutes), choose the image folder, toggle subfolder inclusion, pick style, and enable/disable scheduling. Settings persist under your profile.
+A PowerShell script that sets a random desktop wallpaper from a folder. It supports a Windows system tray icon with a right‑click menu to manually change the wallpaper, configure the schedule (minutes), choose the image folder, toggle subfolder inclusion, pick style, and enable/disable scheduling. Settings are saved to `%AppData%\RandomWallpaper\config.json` and automatically restored after reboot.
 
 ## Features
 - System tray app (Windows Forms)
@@ -23,7 +23,7 @@ A PowerShell script that sets a random desktop wallpaper from a folder. It suppo
 
 ## Requirements
 - Windows 10/11
-- PowerShell 7+ (tested with 7.5.3), executable `pwsh`
+- PowerShell 7+ (`pwsh`) — **Windows PowerShell 5.1 is not supported**
 - .NET Windows Desktop assemblies (System.Windows.Forms/System.Drawing) – present by default on Windows desktops
 
 ## Files
@@ -50,7 +50,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\rand_wallpaper.ps1 -UninstallSta
 You can also toggle “Start at logon” directly from the tray menu.
 
 Notes:
-- The shortcut is created in your user Startup folder with target `pwsh.exe` and arguments `-NoProfile -ExecutionPolicy Bypass -File "<script>" -Tray`.
+- The shortcut is created in your user Startup folder with target `pwsh.exe` (PowerShell 7+) and arguments `-NoProfile -ExecutionPolicy Bypass -File "<script>" -Tray`.
+- On startup, saved settings (folder, interval, style, recurse, schedule) are loaded from `%AppData%\RandomWallpaper\config.json` automatically.
 - The shortcut icon uses `tray.ico` or `icon.ico` if available; otherwise a system icon.
 
 ## Scheduled Task (optional, non‑tray)
@@ -99,8 +100,7 @@ Press Ctrl+C to stop.
 - `-TaskName <string>`
   - Name for the Scheduled Task. Default: `RandomWallpaper`.
 
-## Tray mode details
-- Persisted settings: `%AppData%\RandomWallpaper\config.json`
+## Tray mode details- Settings are saved automatically whenever you make a change via the tray menu and are restored on next launch (including after a reboot).- Persisted settings: `%AppData%\RandomWallpaper\config.json`
   - `ImageFolder`: string
   - `IntervalMinutes`: number (minutes)
   - `Style`: one of `Fill|Fit|Stretch|Center|Tile|Span`

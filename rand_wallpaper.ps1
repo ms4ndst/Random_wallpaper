@@ -405,10 +405,11 @@ function Install-StartupShortcut {
     throw "Creating WScript.Shell COM object failed: $($_.Exception.Message)"
   }
   try {
-    # Prefer Windows PowerShell for hidden STA startup to avoid any console window and ensure STA
-    $ps5 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $hostExe = if (Test-Path -LiteralPath $ps5) { $ps5 } else { 'powershell.exe' }
-    $args = "-NoProfile -NoLogo -WindowStyle Hidden -Sta -ExecutionPolicy Bypass -File `"$ScriptPath`" -Tray"
+    # Use pwsh (PowerShell 7+) — the script requires PS7+
+    $pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
+    if (-not $pwsh) { $pwsh = 'pwsh.exe' }
+    $hostExe = $pwsh
+    $args = "-NoProfile -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`" -Tray"
   } catch {
     throw "Building arguments failed: $($_.Exception.Message)"
   }
@@ -456,20 +457,20 @@ function Uninstall-StartupShortcut {
 function Ensure-STA {
   param([string]$ScriptPath, [hashtable]$ForwardParams)
   if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
-    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-Sta','-File',("`"{0}`"" -f $ScriptPath),'-Tray')
+    $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',("\`"{0}\`"" -f $ScriptPath),'-Tray')
     foreach ($k in $ForwardParams.Keys) {
       $v = $ForwardParams[$k]
       if ($null -ne $v -and $v -ne '') {
         if ($v -is [switch] -or $v -is [bool]) {
           if ([bool]$v) { $argList += @("-$k") }
         } else {
-          $argList += @("-$k", ("`"{0}`"" -f $v))
+          $argList += @("-$k", ("\`"{0}\`"" -f $v))
         }
       }
     }
-    # Use Windows PowerShell for guaranteed -STA support on Windows
-    $ps5 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $exe = if (Test-Path -LiteralPath $ps5) { $ps5 } else { 'powershell.exe' }
+    # Use pwsh (PowerShell 7+) — the script requires PS7+
+    $exe = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
+    if (-not $exe) { $exe = 'pwsh.exe' }
     Start-Process $exe -ArgumentList ($argList -join ' ') -WindowStyle Hidden | Out-Null
     return $false
   }
