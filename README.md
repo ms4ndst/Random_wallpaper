@@ -5,6 +5,7 @@ A PowerShell script that sets a random desktop wallpaper from a folder. It suppo
 ## Features
 - System tray app (Windows Forms)
   - Change now
+  - Select wallpaper… (thumbnail picker — scrollable grid, live search, click to apply)
   - Set folder… (browse)
   - Set interval (minutes)…
   - Include subfolders (toggle)
