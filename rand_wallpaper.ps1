@@ -712,20 +712,21 @@ function Start-TrayApp {
     $pickerForm.Controls.Add($searchBox)
 
     $disposeAll = {
-      foreach ($tile in $allTiles) {
-        foreach ($child in $tile.Controls) {
-          if ($child -is [System.Windows.Forms.PictureBox]) {
-            try { $child.CancelAsync() } catch {}
-            if ($child.Image) {
-              try { $child.Image.Dispose() } catch {}
-              $child.Image = $null
-            }
+      foreach ($entry in $allTiles) {
+        $pb = $entry.PictureBox
+        if ($pb) {
+          try { $pb.CancelAsync() } catch {}
+          if ($pb.Image) {
+            try { $pb.Image.Dispose() } catch {}
+            $pb.Image = $null
           }
         }
       }
     }
 
-    # Build tile without loading image (lazy-loaded later)
+    # Build tile without loading image (lazy-loaded later).
+    # Returns a pscustomobject with .Tile (Panel) and .PictureBox so callers
+    # never need to search Controls to find the PictureBox.
     $buildTile = {
       param([System.IO.FileInfo]$file)
       $tile = New-Object System.Windows.Forms.Panel
@@ -764,10 +765,25 @@ function Start-TrayApp {
       $lbl.Add_MouseEnter($onEnter);  $lbl.Add_MouseLeave($onLeave)
       $tile.Add_MouseEnter($onEnter); $tile.Add_MouseLeave($onLeave)
 
+      # Apply wallpaper on the UI thread (registry + P/Invoke are near-instant;
+      # running PS functions via Task.Run deadlocks because the scriptblock tries
+      # to re-enter the runspace that is already owned by the STA message-pump thread).
+      # Use $s.FindForm() instead of capturing $pickerForm: this scriptblock is defined
+      # inside an invoked child scriptblock (&$buildTile), so the outer local variable
+      # $pickerForm may not resolve when the event fires after that scope has returned.
       $applyAndClose = {
         param($s,$e)
         $path = $s.Tag
         if (-not $path -and $s.Parent) { $path = $s.Parent.Tag }
+        # Disable the tile immediately so a double-click can't fire twice.
+        # Derive the panel from the sender — $tile cannot be captured from inside
+        # an invoked scriptblock (&) because its scope is gone at event-fire time.
+        $tilePanel = if ($s -is [System.Windows.Forms.Panel]) { $s } else { $s.Parent }
+        if ($tilePanel) { $tilePanel.Enabled = $false }
+        # Resolve the form from the sender control — avoids closure/scope issues.
+        $form = $s.FindForm()
+        if ($form) { $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor }
+
         try {
           Set-WallpaperStyleRegistry -Style $script:cfg.Style
           Apply-Wallpaper -ImagePath $path
@@ -778,8 +794,9 @@ function Start-TrayApp {
             "Random Wallpaper",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+        } finally {
+          if ($form) { $form.Close() }
         }
-        $pickerForm.Close()
       }
       $pb.Add_Click($applyAndClose)
       $lbl.Add_Click($applyAndClose)
@@ -787,22 +804,26 @@ function Start-TrayApp {
 
       $tile.Controls.Add($pb)
       $tile.Controls.Add($lbl)
-      return $tile
+      return [pscustomobject]@{ Tile = $tile; PictureBox = $pb }
     }
 
-    # Build all tiles (no images yet)
-    $allTiles = [System.Collections.Generic.List[System.Windows.Forms.Panel]]::new()
+    # Build all tiles (no images yet).
+    # $allTiles stores {Tile, PictureBox} pairs - avoids Controls enumeration in the load timer.
+    $allTiles = [System.Collections.Generic.List[pscustomobject]]::new()
+    $flow.SuspendLayout()
     foreach ($f in ($imageFiles | Sort-Object Name)) {
-      $tile = & $buildTile $f
-      $allTiles.Add($tile)
-      $flow.Controls.Add($tile)
+      $entry = & $buildTile $f
+      $allTiles.Add($entry)
+      $flow.Controls.Add($entry.Tile)
     }
+    $flow.ResumeLayout()
 
-    # Lazy-load images in batches via a timer so the form appears immediately
+    # Lazy-load thumbnails in batches via a UI timer so the form appears immediately.
+    # Interval is 80 ms (not 30 ms) to keep the UI thread responsive while scrolling.
     $lazyState  = @{ Index = 0 }
-    $batchSize  = 15
+    $batchSize  = 8
     $loadTimer  = New-Object System.Windows.Forms.Timer
-    $loadTimer.Interval = 30
+    $loadTimer.Interval = 80
 
     # Pre-load PresentationCore once if any webp files are present
     if ($imageFiles | Where-Object { $_.Extension.ToLowerInvariant() -eq '.webp' } | Select-Object -First 1) {
@@ -812,7 +833,8 @@ function Start-TrayApp {
     $loadTimer.add_Tick({
       $end = [Math]::Min($lazyState.Index + $batchSize, $allTiles.Count)
       for ($i = $lazyState.Index; $i -lt $end; $i++) {
-        $pb = $allTiles[$i].Controls | Where-Object { $_ -is [System.Windows.Forms.PictureBox] } | Select-Object -First 1
+        # PictureBox is stored directly — no Controls enumeration needed.
+        $pb = $allTiles[$i].PictureBox
         if ($pb -and $pb.Tag -and -not $pb.Image) {
           $imgPath = [string]$pb.Tag
           $ext = [System.IO.Path]::GetExtension($imgPath).ToLowerInvariant()
@@ -844,14 +866,24 @@ function Start-TrayApp {
       if ($lazyState.Index -ge $allTiles.Count) { $loadTimer.Stop() }
     })
 
-    $searchBox.Add_TextChanged({
+    # Debounce search: apply filter 300 ms after the user stops typing so every
+    # keystroke does not immediately rebuild the Controls collection.
+    $searchTimer = New-Object System.Windows.Forms.Timer
+    $searchTimer.Interval = 300
+    $searchTimer.add_Tick({
+      $searchTimer.Stop()
       $q = $searchBox.Text.Trim()
       $flow.SuspendLayout()
       $flow.Controls.Clear()
-      foreach ($tile in $allTiles) {
-        if ($q -eq '' -or $tile.Tag -like "*$q*") { $flow.Controls.Add($tile) }
+      foreach ($entry in $allTiles) {
+        if ($q -eq '' -or $entry.Tile.Tag -like "*$q*") { $flow.Controls.Add($entry.Tile) }
       }
       $flow.ResumeLayout()
+    })
+    $searchBox.Add_TextChanged({
+      # Reset the debounce timer on every keystroke.
+      $searchTimer.Stop()
+      $searchTimer.Start()
     })
 
     $pickerForm.Add_Shown({
@@ -862,8 +894,10 @@ function Start-TrayApp {
     $pickerForm.Add_FormClosed({
       $loadTimer.Stop()
       $loadTimer.Dispose()
+      $searchTimer.Stop()
+      $searchTimer.Dispose()
       & $disposeAll
-      foreach ($tile in $allTiles) { try { $tile.Dispose() } catch {} }
+      foreach ($entry in $allTiles) { try { $entry.Tile.Dispose() } catch {} }
     })
 
     $pickerForm.ShowDialog() | Out-Null
